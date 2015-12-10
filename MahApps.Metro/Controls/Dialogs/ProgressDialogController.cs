@@ -12,10 +12,27 @@ namespace MahApps.Metro.Controls.Dialogs
         private ProgressDialog WrappedDialog { get; set; }
         private Func<Task> CloseCallback { get; set; }
 
+       
+
+        /// <summary>
+        /// This event is raised when the associated <see cref="ProgressDialog"/> was closed programmatically.
+        /// </summary>
+        public event EventHandler Closed;
+   
+        /// <summary>
+        /// This event is raised when the associated <see cref="ProgressDialog"/> was cancelled by the user.
+        /// </summary>
+        public event EventHandler Canceled;
+
+        /// <summary>
+        /// Gets if the Cancel button has been pressed.
+        /// </summary>        
+        public bool IsCanceled { get; private set; }        
+
         /// <summary>
         /// Gets if the wrapped ProgressDialog is open.
-        /// </summary>
-        public bool IsOpen { get; private set; }
+        /// </summary>        
+        public bool IsOpen { get; private set;}
 
         internal ProgressDialogController(ProgressDialog dialog, Func<Task> closeCallBack)
         {
@@ -24,9 +41,9 @@ namespace MahApps.Metro.Controls.Dialogs
 
             IsOpen = dialog.IsVisible;
 
-            WrappedDialog.PART_NegativeButton.Dispatcher.Invoke(new Action(() => {
+            InvokeAction(() => {
                 WrappedDialog.PART_NegativeButton.Click += PART_NegativeButton_Click;
-            }));
+            });
 
             dialog.CancellationToken.Register(() =>
             {
@@ -38,10 +55,15 @@ namespace MahApps.Metro.Controls.Dialogs
         {
             Action action = () => {
                 IsCanceled = true;
+                var handler = Canceled;
+                if (handler != null)
+                {
+                    handler(this, EventArgs.Empty);
+                }
                 WrappedDialog.PART_NegativeButton.IsEnabled = false;
             };
 
-            this.InvokeAction(action);
+            InvokeAction(action);
         }
 
         /// <summary>
@@ -49,7 +71,7 @@ namespace MahApps.Metro.Controls.Dialogs
         /// </summary>
         public void SetIndeterminate()
         {
-            this.InvokeAction(() => WrappedDialog.PART_ProgressBar.IsIndeterminate = true);
+            InvokeAction(() => WrappedDialog.SetIndeterminate());
         }
 
         /// <summary>
@@ -58,7 +80,7 @@ namespace MahApps.Metro.Controls.Dialogs
         /// <param name="value"></param>
         public void SetCancelable(bool value)
         {
-            this.InvokeAction(() => WrappedDialog.IsCancelable = value);
+            InvokeAction(() => WrappedDialog.IsCancelable = value);
         }
 
         /// <summary>
@@ -68,17 +90,15 @@ namespace MahApps.Metro.Controls.Dialogs
         public void SetProgress(double value)
         {
             Action action = () => {
-                if (value < WrappedDialog.PART_ProgressBar.Minimum || value > WrappedDialog.PART_ProgressBar.Maximum)
+                if (value < WrappedDialog.Minimum || value > WrappedDialog.Maximum)
                 {
                     throw new ArgumentOutOfRangeException("value");
                 }
 
-                WrappedDialog.PART_ProgressBar.IsIndeterminate = false;
-                WrappedDialog.PART_ProgressBar.Value = value;
-                WrappedDialog.PART_ProgressBar.ApplyTemplate();
+                WrappedDialog.ProgressValue = value;
             };
 
-            this.InvokeAction(action);
+            InvokeAction(action);
         }
 
         /// <summary>
@@ -86,8 +106,8 @@ namespace MahApps.Metro.Controls.Dialogs
         /// </summary>
         public double Minimum
         {
-            get { return this.InvokeFunc(() => WrappedDialog.PART_ProgressBar.Minimum); }
-            set { this.InvokeAction(() => WrappedDialog.PART_ProgressBar.Minimum = value); }
+            get { return InvokeFunc(() => WrappedDialog.Minimum); }
+            set { InvokeAction(() => WrappedDialog.Minimum = value); }
         }
 
         /// <summary>
@@ -95,8 +115,8 @@ namespace MahApps.Metro.Controls.Dialogs
         /// </summary>
         public double Maximum
         {
-            get { return this.InvokeFunc(() => WrappedDialog.PART_ProgressBar.Maximum); }
-            set { this.InvokeAction(() => WrappedDialog.PART_ProgressBar.Maximum = value); }
+            get { return InvokeFunc(() => WrappedDialog.Maximum); }
+            set { InvokeAction(() => WrappedDialog.Maximum = value); }
         }
 
         /// <summary>
@@ -105,7 +125,7 @@ namespace MahApps.Metro.Controls.Dialogs
         /// <param name="message">The message to be set.</param>
         public void SetMessage(string message)
         {
-            this.InvokeAction(() => WrappedDialog.Message = message);
+            InvokeAction(() => WrappedDialog.Message = message);
         }
 
         /// <summary>
@@ -114,13 +134,10 @@ namespace MahApps.Metro.Controls.Dialogs
         /// <param name="title">The title to be set.</param>
         public void SetTitle(string title)
         {
-            this.InvokeAction(() => WrappedDialog.Title = title);
+            InvokeAction(() => WrappedDialog.Title = title);
         }
 
-        /// <summary>
-        /// Gets if the Cancel button has been pressed.
-        /// </summary>
-        public bool IsCanceled { get; private set; }
+       
 
         /// <summary>
         /// Begins an operation to close the ProgressDialog.
@@ -129,18 +146,23 @@ namespace MahApps.Metro.Controls.Dialogs
         public Task CloseAsync()
         {
             Action action = () => {
-                if (!IsOpen)
+                if (!WrappedDialog.IsVisible)
                 {
-                    throw new InvalidOperationException();
+                    throw new InvalidOperationException("Dialog isn't visible to close");
                 }
                 WrappedDialog.Dispatcher.VerifyAccess();
                 WrappedDialog.PART_NegativeButton.Click -= PART_NegativeButton_Click;
             };
 
-            this.InvokeAction(action);
+            InvokeAction(action);
 
-            return CloseCallback().ContinueWith(x => WrappedDialog.Dispatcher.Invoke(new Action(() => {
+            return CloseCallback().ContinueWith(_ => InvokeAction(new Action(() => {
                 IsOpen = false;
+
+                var handler = Closed;
+                if (handler != null) {
+                    handler(this, EventArgs.Empty);
+                }
             })));
         }
 
@@ -152,7 +174,7 @@ namespace MahApps.Metro.Controls.Dialogs
             }
             else
             {
-                return (double)this.WrappedDialog.Dispatcher.Invoke(new Func<double>(getValueFunc));
+                return (double)WrappedDialog.Dispatcher.Invoke(new Func<double>(getValueFunc));
             }
         }
 
@@ -164,7 +186,7 @@ namespace MahApps.Metro.Controls.Dialogs
             }
             else
             {
-                WrappedDialog.Dispatcher.Invoke(new Action(setValueAction));
+                WrappedDialog.Dispatcher.Invoke(setValueAction);
             }
         }
     }
